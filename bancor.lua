@@ -37,10 +37,10 @@ function add_pair(ratio,main_supply,main_sym,main_unit,main_fee, sub_supply,sub_
     trade_pair.sub_unit=sub_unit
     trade_pair.sub_fee=sub_fee
 
-    trade_pair.main_keys=0
+
     trade_pair.main_mask=0
-    trade_pair.sub_keys=0
     trade_pair.sub_mask=0
+    trade_pair.share_keys=0
 
     table.insert(public_data.bancor_table, trade_pair)
     chainhelper:write_chain()
@@ -90,8 +90,8 @@ function swap_pair(inx,amount,from_sym,to_sym)
             chainhelper:transfer_from_caller('coswap-fund', dev_fee*trade_pair.main_unit, trade_pair.main_sym, true)
         end
         --分成金额
-        if(share_fee>0 and trade_pair.main_keys>0){
-            local profit_per_key=share_fee / trade_pair.main_keys
+        if(share_fee>0 and trade_pair.share_keys>0){
+            local profit_per_key=share_fee / trade_pair.share_keys
             trade_pair.main_mask=trade_pair.main_mask+profit_per_key
         }
         --交换代币
@@ -112,8 +112,8 @@ function swap_pair(inx,amount,from_sym,to_sym)
             chainhelper:transfer_from_caller('coswap-fund', dev_fee*trade_pair.sub_unit, trade_pair.sub_sym, true)
         end
         --分成金额
-        if(share_fee>0 and trade_pair.sub_keys>0){
-            local profit_per_key=share_fee / trade_pair.sub_keys
+        if(share_fee>0 and trade_pair.share_keys>0){
+            local profit_per_key=share_fee / trade_pair.share_keys
             trade_pair.sub_mask=trade_pair.sub_mask+profit_per_key
         }
         --交换代币
@@ -159,18 +159,14 @@ function delegate(inx,amount)
         share_pair={}
         share_pair.main_sym=main_sym
         share_pair.sub_sym=sub_sym    
-        share_pair.main_keys=0
+        share_pair.share_keys=0
         share_pair.main_mask=0
-        share_pair.sub_keys=0
         share_pair.sub_mask=0
         private_data.bancor_share_table[inx]=share_pair
     end
-    trade_pair.main_keys=trade_pair.main_keys+amount
-    share_pair.main_keys=share_pair.main_keys+amount
+    trade_pair.share_keys=trade_pair.share_keys+amount
+    share_pair.share_keys=share_pair.share_keys+amount
     share_pair.main_mask=share_pair.main_mask+(trade_pair.main_mask*amount)
-
-    trade_pair.sub_keys=trade_pair.sub_keys+amount
-    share_pair.sub_keys=share_pair.sub_keys+amount
     share_pair.sub_mask=share_pair.sub_mask+(trade_pair.sub_mask*amount)
 
     private_data.bancor_share_table[inx]=share_pair
@@ -192,8 +188,8 @@ function cal_profit(inx)
     share_pair=private_data.bancor_share_table[inx]
     assert(share_pair~=nil , "share_pair not exists") 
 
-    local main_profit = trade_pair.main_mask * share_pair.main_keys - share_pair.main_mask
-    local sub_profit = trade_pair.sub_mask * share_pair.sub_keys - share_pair.sub_mask
+    local main_profit = trade_pair.main_mask * share_pair.share_keys - share_pair.main_mask
+    local sub_profit = trade_pair.sub_mask * share_pair.share_keys - share_pair.sub_mask
 
     chainhelper:log('main_sym:'..trade_pair.main_sym..',sub_sym:'..trade_pair.sub_sym..',main_profit:'..main_profit..',sub_profit:'..sub_profit)
 end
@@ -212,14 +208,14 @@ function withdraw_profit(inx)
     share_pair=private_data.bancor_share_table[inx]
     assert(share_pair~=nil , "share_pair not exists") 
 
-    local main_profit = trade_pair.main_mask * share_pair.main_keys - share_pair.main_mask
-    local sub_profit = trade_pair.sub_mask * share_pair.sub_keys - share_pair.sub_mask
+    local main_profit = trade_pair.main_mask * share_pair.share_keys - share_pair.main_mask
+    local sub_profit = trade_pair.sub_mask * share_pair.share_keys - share_pair.sub_mask
 
     chainhelper:transfer_from_owner(contract_base_info.caller, main_profit*trade_pair.main_unit, trade_pair.main_sym, true)
     chainhelper:transfer_from_owner(contract_base_info.caller, sub_profit*trade_pair.sub_unit, trade_pair.sub_sym, true)
 
-    share_pair.main_mask=trade_pair.main_mask * share_pair.main_keys
-    share_pair.sub_mask=trade_pair.sub_mask * share_pair.sub_keys
+    share_pair.main_mask=trade_pair.main_mask * share_pair.share_keys
+    share_pair.sub_mask=trade_pair.sub_mask * share_pair.share_keys
 
     private_data.bancor_share_table[inx]=share_pair
     public_data.bancor_table[inx]=trade_pair
@@ -242,14 +238,13 @@ function undelegate(inx)
     share_pair=private_data.bancor_share_table[inx]
     assert(share_pair~=nil , "share_pair not exists") 
 
-    local main_profit = trade_pair.main_mask * share_pair.main_keys - share_pair.main_mask
-    local sub_profit = trade_pair.sub_mask * share_pair.sub_keys - share_pair.sub_mask
+    local main_profit = trade_pair.main_mask * share_pair.share_keys - share_pair.main_mask
+    local sub_profit = trade_pair.sub_mask * share_pair.share_keys - share_pair.sub_mask
 
     chainhelper:transfer_from_owner(contract_base_info.caller, main_profit*trade_pair.main_unit, trade_pair.main_sym, true)
     chainhelper:transfer_from_owner(contract_base_info.caller, sub_profit*trade_pair.sub_unit, trade_pair.sub_sym, true)
-    chainhelper:transfer_from_owner(contract_base_info.caller, share_pair.sub_keys*trade_pair.sub_unit, trade_pair.sub_sym, true)
-    trade_pair.main_keys=trade_pair.main_keys-share_pair.main_keys
-    trade_pair.sub_keys=trade_pair.sub_keys-share_pair.sub_keys
+    chainhelper:transfer_from_owner(contract_base_info.caller, share_pair.share_keys*trade_pair.sub_unit, trade_pair.sub_sym, true)
+    trade_pair.share_keys=trade_pair.share_keys-share_pair.share_keys
     private_data.bancor_share_table[inx]=nil
     public_data.bancor_table[inx]=trade_pair
     chainhelper:write_chain()
