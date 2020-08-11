@@ -136,7 +136,7 @@ function swap_pair(inx,amount,from_sym,to_sym)
 end
 
 
---质押分成
+--质押
 function delegate(inx,amount)
     amount=tonumber(amount)
     assert(amount >0 , "invalid amount!") 
@@ -198,7 +198,7 @@ function cal_profit(inx)
     chainhelper:log('main_sym:'..trade_pair.main_sym..',sub_sym:'..trade_pair.sub_sym..',main_profit:'..main_profit..',sub_profit:'..sub_profit)
 end
 
---质押
+--提取收益
 function withdraw_profit(inx)
     assert(inx >0 , "invalid inx!") 
     chainhelper:read_chain()
