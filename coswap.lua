@@ -93,7 +93,7 @@ function swap_pair(inx,amount,from_sym,to_sym)
             trade_pair.main_mask=trade_pair.main_mask+profit_per_key
         }
         --交换代币
-
+        --TODO 乘积率模型
         local s = (math.pow((1 + amount/trade_pair.main_supply),trade_pair.ratio)-1)*trade_pair.sub_supply
         assert(s>0,'amount error')
         trade_pair.main_supply=trade_pair.main_supply+amount
@@ -116,6 +116,7 @@ function swap_pair(inx,amount,from_sym,to_sym)
             trade_pair.sub_mask=trade_pair.sub_mask+profit_per_key
         }
         --交换代币
+        --TODO 乘积率模型
         local m = (1-math.pow((1 - amount/trade_pair.sub_supply),(1/ratio)))*trade_pair.main_supply
         assert(m>0,'amount error')
         trade_pair.main_supply=trade_pair.main_supply-m
@@ -146,7 +147,12 @@ function add_liquid(inx,amount)
     assert(public_data.swap_table~=nil,'swap_table is null')
     trade_pair = public_data.swap_table[inx]
     assert(trade_pair~=nil , "trade_pair not exists") 
-    chainhelper:transfer_from_caller(contract_base_info.owner, amount*trade_pair.sub_unit, trade_pair.sub_sym, true)
+    local main_amount=amount
+    local sub_amount=(amount/trade_pair.main_supply)*trade_pair.sub_supply
+
+    chainhelper:transfer_from_caller(contract_base_info.owner, main_amount*trade_pair.main_unit, trade_pair.main_sym, true)
+    chainhelper:transfer_from_caller(contract_base_info.owner, sub_amount*trade_pair.sub_unit, trade_pair.sub_sym, true)
+    local key_amount=main_amount*sub_amount
 
     swap_share_table = private_data.swap_share_table
     if swap_share_table == nil then 
@@ -164,13 +170,13 @@ function add_liquid(inx,amount)
         share_pair.sub_mask=0
         private_data.swap_share_table[inx]=share_pair
     end
-    trade_pair.main_keys=trade_pair.main_keys+amount
-    share_pair.main_keys=share_pair.main_keys+amount
-    share_pair.main_mask=share_pair.main_mask+(trade_pair.main_mask*amount)
+    trade_pair.main_keys=trade_pair.main_keys+key_amount
+    share_pair.main_keys=share_pair.main_keys+key_amount
+    share_pair.main_mask=share_pair.main_mask+(trade_pair.main_mask*key_amount)
 
-    trade_pair.sub_keys=trade_pair.sub_keys+amount
-    share_pair.sub_keys=share_pair.sub_keys+amount
-    share_pair.sub_mask=share_pair.sub_mask+(trade_pair.sub_mask*amount)
+    trade_pair.sub_keys=trade_pair.sub_keys+key_amount
+    share_pair.sub_keys=share_pair.sub_keys+key_amount
+    share_pair.sub_mask=share_pair.sub_mask+(trade_pair.sub_mask*key_amount)
 
     private_data.swap_share_table[inx]=share_pair
     public_data.swap_table[inx]=trade_pair
@@ -246,9 +252,16 @@ function redeem(inx)
 
     chainhelper:transfer_from_owner(contract_base_info.caller, main_profit*trade_pair.main_unit, trade_pair.main_sym, true)
     chainhelper:transfer_from_owner(contract_base_info.caller, sub_profit*trade_pair.sub_unit, trade_pair.sub_sym, true)
-    chainhelper:transfer_from_owner(contract_base_info.caller, share_pair.sub_keys*trade_pair.sub_unit, trade_pair.sub_sym, true)
+
+    local main_ratio = share_pair.main_keys/trade_pair.main_keys
+    local sub_ratio = share_pair.sub_keys/trade_pair.sub_keys
+
+    chainhelper:transfer_from_owner(contract_base_info.caller, trade_pair.main_supply*main_ratio*trade_pair.main_unit, trade_pair.main_sym, true)
+    chainhelper:transfer_from_owner(contract_base_info.caller, trade_pair.sub_supply*sub_ratio*trade_pair.sub_unit, trade_pair.sub_sym, true)
+
     trade_pair.main_keys=trade_pair.main_keys-share_pair.main_keys
     trade_pair.sub_keys=trade_pair.sub_keys-share_pair.sub_keys
+
     private_data.swap_share_table[inx]=nil
     public_data.swap_table[inx]=trade_pair
     chainhelper:write_chain()
