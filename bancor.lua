@@ -90,10 +90,10 @@ function swap_pair(inx,amount,from_sym,to_sym)
             chainhelper:transfer_from_caller('coswap-fund', dev_fee*trade_pair.main_unit, trade_pair.main_sym, true)
         end
         --分成金额
-        if(share_fee>0 and trade_pair.share_keys>0){
+        if(share_fee>0 and trade_pair.share_keys>0) then
             local profit_per_key=share_fee / trade_pair.share_keys
             trade_pair.main_mask=trade_pair.main_mask+profit_per_key
-        }
+        end
         --交换代币
         local s = (math.pow((1 + amount/trade_pair.main_supply),trade_pair.ratio)-1)*trade_pair.sub_supply
         assert(s>0,'amount error')
@@ -112,10 +112,10 @@ function swap_pair(inx,amount,from_sym,to_sym)
             chainhelper:transfer_from_caller('coswap-fund', dev_fee*trade_pair.sub_unit, trade_pair.sub_sym, true)
         end
         --分成金额
-        if(share_fee>0 and trade_pair.share_keys>0){
+        if(share_fee>0 and trade_pair.share_keys>0) then
             local profit_per_key=share_fee / trade_pair.share_keys
             trade_pair.sub_mask=trade_pair.sub_mask+profit_per_key
-        }
+        end
         --交换代币
         local m = (1-math.pow((1 - amount/trade_pair.sub_supply),(1/ratio)))*trade_pair.main_supply
         assert(m>0,'amount error')
