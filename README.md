@@ -1,4 +1,4 @@
-# CFS: Cocos Financial Share
+~~# CFS: Cocos Financial Share
 
 v1.0 Sep 14 2020
 
@@ -52,7 +52,7 @@ CFS是 coswap.io 的平台币，与MakerDAO的MKR、Compound的COMP类似，但�
 
 初始流通量：0；
 
-挖矿启动时间： 2020-09-19 20:00:00 , 时间戳 1600516800
+挖矿启动时间：待定  ~~2020-09-19 20:00:00 , 时间戳 1600516800~~
 
 减产规则：
 仿照比特币的减半机制，CFS的减半规则如下：
@@ -151,4 +151,3 @@ Cocos Financial Share, 愿景是打造一个去中心化金融网络的底层基
 我们以一种去中心化的方式来推动这个愿景。  
 
 Better future. Respects.
-
