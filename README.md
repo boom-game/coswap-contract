@@ -1,4 +1,4 @@
-~~# CFS: Cocos Financial Share
+# CFS: Cocos Financial Share
 
 v1.0 Sep 14 2020
 
@@ -150,4 +150,3 @@ Cocos Financial Share, 愿景是打造一个去中心化金融网络的底层基
 
 我们以一种去中心化的方式来推动这个愿景。  
 
-Better future. Respects.
