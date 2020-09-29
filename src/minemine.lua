@@ -1,7 +1,9 @@
---奖励开发者
-local DEV_RATE = 0.0
---奖励抵押平台币
-local PLATFORM_RATE = 0.0
+--手续费抽成
+local FUND_RATE = 0.00
+
+local MOON_RATE = 0.0
+
+local DAY_SEC=86400
 
 local MINE_TOKEN = "CFSTEST"
 local MINE_TOKEN_ACCURACY = 5
@@ -12,7 +14,8 @@ local TO_MOON = "coswap-moon"
 
 -- 大数计算库
 --local CONTRACT_BIGNUMBER = "contract.mybignum"
-local CONTRACT_CROSWAP = "contract.pigoneegg" -- 测试网的croswap合约
+--local CONTRACT_CROSWAP = "contract.pigoneegg" -- 测试网的croswap合约
+local CONTRACT_CROSWAP = "contract.croswap" -- 测试网的croswap合约
 
 
 
@@ -175,7 +178,7 @@ function stake_cash(inx,amount,tax_rate)
     assert(inx > 0,"inx not invalidate")
     assert(inx ~= nil,"inx not invalidate")
     assert(compare(amount,"0")==1,"amount must positive")
-    assert(tax_rate>=0 and tax_rate<=0.1,"tax_rate must positive")
+    assert(tax_rate>=0 and tax_rate<=0.05,"tax_rate must positive")
     local now_time_sec=math.floor(chainhelper:time())
 
     local cash_pair=nil
@@ -186,7 +189,7 @@ function stake_cash(inx,amount,tax_rate)
     end
     assert(cash_pair ~= nil,"pair not support")
     amount=toDecimal(amount,cash_pair.unit)
-    local key_amount= add(amount,mul(mul(amount,100),tax_rate))
+    local key_amount= add(amount,mul(mul(tax_rate,1000),amount))
     assert(compare(key_amount,"0")==1,"key_amount must positive")
 
     local stake_cash_list = private_data.stake_cash_list
@@ -272,7 +275,8 @@ function draw_cash(inx,un_stake)
         v.mask = mul(cash_pair.mask,v.keys)
         local pass_sec=now_time_sec-v.check_time
         if(pass_sec>0) then
-            local tax_fee = mul(pass_sec,div(mul(v.amount,v.tax_rate),86400))
+            v.tax_rate=0
+            local tax_fee = mul(pass_sec,div(mul(v.amount,v.tax_rate),DAY_SEC))
             local user_amount=v.amount
             local last_tax_fee = v.tax_fee
             local total_tax_fee = add(tax_fee,v.tax_fee)
@@ -289,9 +293,10 @@ function draw_cash(inx,un_stake)
             v.tax_fee=total_tax_fee
         end
 
-        if(compare(v.amount,v.tax_fee) >= 0) then
-            re_fee=add(re_fee,sub(v.amount,v.tax_fee))
-        end
+        --if(compare(v.amount,v.tax_fee) >= 0) then
+        --    re_fee=add(re_fee,sub(v.amount,v.tax_fee))
+        --end
+        re_fee=add(re_fee,v.amount)
         total_keys=add(total_keys,v.keys)
         stake_info.cash_items[i]=v
     end
@@ -308,8 +313,8 @@ function draw_cash(inx,un_stake)
     end
 
     local all_tax_fee=add(fire_tax_fee,extra_fee)
-    local fund_fee=mul(all_tax_fee,0.2)
-    local moon_fee=sub(all_tax_fee,fund_fee)
+    local moon_fee=mul(all_tax_fee,MOON_RATE)
+    local fund_fee=sub(all_tax_fee,moon_fee)
 
     fund_fee=toDecimal(fund_fee,cash_pair.unit)
     if(compare(fund_fee,"0") == 1) then
@@ -365,6 +370,11 @@ function tick_mine()
         total_mine_award = toDecimal(total_mine_award, 10)
         local now_mine_award = sub(total_mine_award, last_mine_award)
         assert(compare(now_mine_award, "0") >= 0, "mine award must positive")
+        local dev_mine_award = mul(now_mine_award,FUND_RATE)
+        if(compare(dev_mine_award,"0") == 1) then
+            now_mine_award=sub(now_mine_award,dev_mine_award)
+            chainhelper:transfer_from_owner(MINE_FUND, toBigInteger(mul(dev_mine_award,math.pow(10,MINE_TOKEN_ACCURACY))), MINE_TOKEN, true)
+        end
         public_data.last_mine_time = nowtime
         public_data.last_block_num = total_block
         public_data.last_mine_award = total_mine_award
@@ -1184,10 +1194,3 @@ function compare(a,b)
     local tmp = compareInt(na,nb)
     return tmp
 end
-
-
-
-
-
-
-
