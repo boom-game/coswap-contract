@@ -27,13 +27,13 @@ local CONTRACT_ASSET = "contract.assettest"
 --local MINE_TOKEN = "CFS"
 --local CONTRACT_ASSET = "contract.coasset"
 
-local bn = nil
+local bignum = nil
 
 local function bn()
-    if(bn==nil) then
-        bn = import_contract(CONTRACT_BIGNUMBER)
+    if(bignum==nil) then
+        bignum = import_contract(CONTRACT_BIGNUMBER)
     end
-    return bn
+    return bignum
 end
 
 
@@ -145,6 +145,16 @@ end
 --    private_data = {}
 --    chainhelper:write_chain()
 --end
+
+function testbn1()
+    local bnxx = import_contract(CONTRACT_BIGNUMBER)
+    local a=bnxx.add(1,1)
+end
+
+function testbn2()
+    local bnn=bn()
+    local a= bnn.add(1,1)
+end
 
 function check_start()
     local now_time_sec=math.floor(chainhelper:time())
@@ -368,10 +378,10 @@ function check_vote()
         local now_time_sec=chainhelper:time()
         for i, v in pairs(vote_table) do
             if(v.end_time<now_time_sec) then
-                v.status=0
+                v.status=-1
             end
             if(v.start_time>now_time_sec) then
-                v.status=0
+                v.status=2
             end
             if(now_time_sec>=v.start_time and now_time_sec<=v.end_time) then
                 v.status=1
@@ -417,7 +427,7 @@ function add_vote_chose_item(inx,name)
     local vote_item=vote_table[inx]
     local now_time_sec=chainhelper:time()
     assert(vote_item ~= nil,'vote not found')
-    assert(vote_item.start_time>now_time_sec,'vote is start')
+    --assert(vote_item.start_time>now_time_sec,'vote is start')
     local chose_item={}
     chose_item.name=name
     chose_item.keys=0

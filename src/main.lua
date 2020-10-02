@@ -35,16 +35,24 @@ for i = 1, 20 do
 end
 
 
-local haha={}
-for i = 1, 10 do
-    haha[i*2]=i
+
+
+local BLOCK_CUT=1209600
+
+local total_block = 1209700
+local cut_times = math.floor(total_block / BLOCK_CUT)
+local extra_block = total_block - cut_times * BLOCK_CUT
+local cut_rate = 0.9
+local now_rate = 1
+local init_award = 1
+local total_mine_award = "0"
+for i = 1, cut_times do
+    total_mine_award=total_mine_award+ BLOCK_CUT*now_rate*init_award
+    now_rate = now_rate*cut_rate
 end
 
-for i, v in pairs(haha) do
-    haha[i]=nil
+if (extra_block > 0) then
+    total_mine_award = total_mine_award+extra_block*now_rate
 end
-
-haha[4] = nil
-
-local a= "a"
-
+local ta=total_mine_award
+local a=""
