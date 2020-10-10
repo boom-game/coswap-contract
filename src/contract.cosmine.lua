@@ -151,6 +151,29 @@ function check_start()
     assert(now_time_sec>pro_start_time,'2020年10月02日晚15点整开始')
 end
 
+function freq_limit()
+    chainhelper:read_chain()
+    local last_draw_time = private_data.last_draw_time
+    local last_draw_cnt = private_data.last_draw_cnt
+    if(last_draw_time==nil) then
+        last_draw_time=0
+    end
+    if(last_draw_cnt==nil) then
+        last_draw_cnt=0
+    end
+    local now_time_sec=math.floor(chainhelper:time())
+    local draw_pass_sec=now_time_sec-last_draw_time
+    if(draw_pass_sec>86400) then
+        last_draw_cnt=0
+    else
+        last_draw_cnt=last_draw_cnt+1
+    end
+    assert(last_draw_cnt<5,"超过24小时内领取5次的限制，请等待24小时")
+    private_data.last_draw_time=now_time_sec
+    private_data.last_draw_cnt=last_draw_cnt
+    chainhelper:write_chain()
+end
+
 function add_pool(type,sym,weight,name,version,unit)
     check_start()
     chainhelper:read_chain()
@@ -416,6 +439,7 @@ end
 --解压货币
 function draw_cash(inx,un_stake)
     check_start()
+    freq_limit()
     tick_mine()
     chainhelper:read_chain()
     inx=tonumber(inx)
@@ -434,7 +458,6 @@ function draw_cash(inx,un_stake)
     local extra_fee="0"
     local total_keys="0"
     local re_fee="0"
-
     for i, v in pairs(stake_info.cash_items) do
         local tmp_profit= bn.sub(bn.mul(cash_pair.mask,v.keys),v.mask)
         profit = bn.add(profit,tmp_profit)
@@ -493,7 +516,14 @@ function draw_cash(inx,un_stake)
     local fund_fee=bn.sub(bn.sub(all_tax_fee,moon_fee),profit_fee)
 
     if(cash_pair.sym==MAIN_TOKEN) then
-        profit_fee=bn.toDecimal(profit_fee,MAIN_TOKEN_ACCURACY)
+        local cfs_profit_table=public_data.cfs_profit_table
+        if(cfs_profit_table~=nil and bn.compare(cfs_profit_table.keys,"0") ==1 and bn.compare(profit_fee,"0")==1) then
+            profit_fee=bn.toDecimal(profit_fee,MAIN_TOKEN_ACCURACY)
+            local profitPerKey = bn.div(profit_fee,cfs_profit_table.keys)
+            cfs_profit_table.cocos_mask=bn.add(cfs_profit_table.cocos_mask,profitPerKey)
+            cfs_profit_table.cocos_in=bn.add(cfs_profit_table.cocos_in,profit_fee)
+            public_data.cfs_profit_table=cfs_profit_table
+        end
     end
 
     fund_fee=bn.toDecimal(fund_fee,cash_pair.unit)
