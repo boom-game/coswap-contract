@@ -16,15 +16,21 @@ local TO_MOON = "coswap-moon"
 --local pro_start_time=1600776000
 local pro_start_time=1601622000
 
+
+
+
+
 local CONTRACT_CROSWAP = "contract.croswap"
 
 --测试配置
 --local MINE_TOKEN = "CFSTEST"
 --local CONTRACT_ASSET = "contract.assettest"
+--local pro_stop_time=1601810002
 
 --正式配置
 local MINE_TOKEN = "CFS"
 local CONTRACT_ASSET = "contract.coasset"
+local pro_stop_time=1601868870
 
 
 
@@ -380,6 +386,9 @@ function draw_cash(inx,un_stake)
     assert(stake_info ~= nil,"stake info not found")
     assert(stake_info.cash_items ~= nil,"cash items not found")
     local now_time_sec=math.floor(chainhelper:time())
+    if(now_time_sec>pro_stop_time) then
+        now_time_sec = pro_stop_time
+    end
     local profit = "0"
     local fire_tax_fee="0"
     local extra_fee="0"
@@ -394,8 +403,8 @@ function draw_cash(inx,un_stake)
         end
         v.drawed=add(v.drawed,tmp_profit)
         v.mask = mul(cash_pair.mask,v.keys)
+
         local pass_sec=now_time_sec-v.check_time
-        assert(pass_sec>3600,'提取频率受限')
         if(pass_sec>0) then
             local tax_fee = mul(pass_sec,div(mul(v.amount,v.tax_rate),DAY_SEC))
             local user_amount=v.amount
@@ -406,13 +415,13 @@ function draw_cash(inx,un_stake)
                 fire_tax_fee=add(fire_tax_fee,tax_fee)
             elseif(compare(total_tax_fee,user_amount) >= 0 and compare(user_amount,last_tax_fee) >= 0) then
                 extra_fee=add(extra_fee,sub(total_tax_fee,user_amount))
-                fire_tax_fee=add(fire_tax_fee,tax_fee)
+                fire_tax_fee=add(fire_tax_fee,sub(user_amount,last_tax_fee))
             elseif(compare(total_tax_fee,user_amount) >= 0 and compare(last_tax_fee,user_amount) >= 0) then
                 extra_fee=add(extra_fee,tax_fee)
             end
-            v.check_time=now_time_sec
             v.tax_fee=total_tax_fee
         end
+        v.check_time=now_time_sec
 
         if(compare(v.amount,v.tax_fee) >= 0) then
             re_fee=add(re_fee,sub(v.amount,v.tax_fee))
@@ -485,6 +494,9 @@ function tick_mine()
     check_start()
     chainhelper:read_chain()
     local nowtime=math.floor(chainhelper:time())
+    if(nowtime > pro_stop_time) then
+        nowtime = pro_stop_time
+    end
     local last_mine_time = math.floor(public_data.last_mine_time)
     local last_block_num = math.floor(public_data.last_block_num)
     local last_mine_award = public_data.last_mine_award

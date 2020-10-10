@@ -1,4 +1,7 @@
 
+--测试网合约
+--local MAIN_CONTRACT = "1.16.208"
+
 --测试合约
 --local MAIN_CONTRACT = "1.16.166"
 
