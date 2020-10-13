@@ -153,23 +153,22 @@ end
 
 function freq_limit()
     chainhelper:read_chain()
-    local last_draw_time = private_data.last_draw_time
+    local last_draw_day = private_data.last_draw_day
     local last_draw_cnt = private_data.last_draw_cnt
-    if(last_draw_time==nil) then
-        last_draw_time=0
+    if(last_draw_day==nil) then
+        last_draw_day=0
     end
     if(last_draw_cnt==nil) then
         last_draw_cnt=0
     end
-    local now_time_sec=math.floor(chainhelper:time())
-    local draw_pass_sec=now_time_sec-last_draw_time
-    if(draw_pass_sec>86400) then
+    local now_day=math.floor((chainhelper:time()+28800)/86400)
+    if(last_draw_day~=now_day) then
         last_draw_cnt=0
     else
         last_draw_cnt=last_draw_cnt+1
     end
-    assert(last_draw_cnt<5,"超过24小时内领取5次的限制，请等待24小时")
-    private_data.last_draw_time=now_time_sec
+    assert(last_draw_cnt<5,"超过每天领取5次的限制，请明天再试")
+    private_data.last_draw_day=now_day
     private_data.last_draw_cnt=last_draw_cnt
     chainhelper:write_chain()
 end
