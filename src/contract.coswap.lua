@@ -20,18 +20,26 @@ local pro_start_time=1601622000
 
 
 
-local CONTRACT_CROSWAP = "contract.croswap"
+--测试网配置
+--local MINE_TOKEN = "CFSTEST"
+--local CONTRACT_ASSET = "contract.assettest"
+--local CONTRACT_CROSWAP = "contract.pigoneegg"
+--local pro_stop_time=1901810002
 
 --测试配置
 --local MINE_TOKEN = "CFSTEST"
 --local CONTRACT_ASSET = "contract.assettest"
+--local CONTRACT_CROSWAP = "contract.croswap"
 --local pro_stop_time=1601810002
 
 --正式配置
 local MINE_TOKEN = "CFS"
 local CONTRACT_ASSET = "contract.coasset"
+local CONTRACT_CROSWAP = "contract.croswap"
 local pro_stop_time=1601868870
 
+local CONTRACT_BIGNUMBER = "contract.bignum"
+local bn=nil
 
 
 
@@ -66,6 +74,12 @@ local function _invokeContractFunction(contract_name, function_name, ...)
     value_list = cjson.encode(value_list)
 
     chainhelper:invoke_contract_function(contract_name, function_name, value_list)
+end
+
+function regbn()
+    if(bn==nil) then
+        bn=import_contract(CONTRACT_BIGNUMBER)
+    end
 end
 
 
@@ -132,11 +146,35 @@ function print_now()
 end
 
 function check_start()
+    regbn()
     local now_time_sec=math.floor(chainhelper:time())
     assert(now_time_sec>pro_start_time,'2020年10月02日晚15点整开始')
 end
 
+function freq_limit()
+    chainhelper:read_chain()
+    local last_draw_day = private_data.last_draw_day
+    local last_draw_cnt = private_data.last_draw_cnt
+    if(last_draw_day==nil) then
+        last_draw_day=0
+    end
+    if(last_draw_cnt==nil) then
+        last_draw_cnt=0
+    end
+    local now_day=math.floor((chainhelper:time()+28800)/86400)
+    if(last_draw_day~=now_day) then
+        last_draw_cnt=0
+    else
+        last_draw_cnt=last_draw_cnt+1
+    end
+    assert(last_draw_cnt<5,"超过每天领取5次的限制，请明天再试")
+    private_data.last_draw_day=now_day
+    private_data.last_draw_cnt=last_draw_cnt
+    chainhelper:write_chain()
+end
+
 function add_pool(type,sym,weight,name,version,unit)
+    check_start()
     chainhelper:read_chain()
     assert(chainhelper:is_owner(),'no auth')
     assert(type ~= nil,"type not found")
@@ -166,6 +204,7 @@ function add_pool(type,sym,weight,name,version,unit)
 end
 
 function modify_pool(inx,type,sym,weight,name,version,unit)
+    check_start()
     chainhelper:read_chain()
     inx=tonumber(inx)
     assert(inx>0,"inx must postive")
@@ -192,57 +231,83 @@ function modify_pool(inx,type,sym,weight,name,version,unit)
     chainhelper:write_chain()
 end
 
-function init_cfs_cocos()
+function pause_mine()
+    assert(chainhelper:is_owner(),'no auth')
+    tick_mine()
     chainhelper:read_chain()
-    local cfs_profit_table=public_data.cfs_profit_table
-    if(cfs_profit_table==nil) then
-        cfs_profit_table={}
-        cfs_profit_table.keys="0"
-        cfs_profit_table.cocos_in="0"
-        cfs_profit_table.cocos_out="0"
-        cfs_profit_table.cocos_mask="0"
+    local now_time_sec=math.floor(chainhelper:time())
+    public_data.pause_time=now_time_sec
+    if(public_data.restart_time==nil) then
+        public_data.restart_time=0
     end
-    public_data.cfs_profit_table=cfs_profit_table
     chainhelper:write_chain()
 end
---
---function reset_cfs_user()
---    chainhelper:read_chain()
---    local stake_profit_table=private_data.stake_profit_table
---    stake_profit_table={}
---    stake_profit_table.keys="0"
---    stake_profit_table.cocos_in="0"
---    stake_profit_table.cocos_out="0"
---    stake_profit_table.cocos_mask="0"
---    private_data.stake_profit_table=stake_profit_table
---    chainhelper:write_chain()
---end
+
+function restart_mine()
+    assert(chainhelper:is_owner(),'no auth')
+    chainhelper:read_chain()
+    local now_time_sec=math.floor(chainhelper:time())
+    public_data.restart_time=now_time_sec
+    if(public_data.pause_time==nil) then
+        public_data.pause_time=0
+    end
+    if(public_data.restart_mine_time==nil) then
+        public_data.restart_mine_time=now_time_sec
+    end
+    chainhelper:write_chain()
+end
+
+local function get_pass_sec(pause_time,restart_time,now_time_sec,last_tick_time)
+    if(pause_time==nil) then
+        pause_time=pro_stop_time
+    end
+    if(restart_time==nil) then
+        restart_time = 0
+    end
+    if(restart_time>pause_time) then
+        --开启状态
+        if(restart_time>last_tick_time) then
+            return (now_time_sec-restart_time)
+        else
+            return (now_time_sec-last_tick_time)
+        end
+    else
+        --暂停状态
+        if(pause_time>last_tick_time) then
+            return (pause_time-last_tick_time)
+        else
+            return 0
+        end
+    end
+end
+
 
 function add_cfs_cocos(amount)
     check_start()
     tick_mine()
     chainhelper:read_chain()
-    assert(compare(amount,"0")==1,"amount must positive")
-    assert(compare(amount,"100000000000") == -1 , "amount to big!")
+    assert(bn.compare(amount,"0")==1,"amount must positive")
+    assert(bn.compare(amount,"100000000000") == -1 , "amount to big!")
     local now_time_sec=math.floor(chainhelper:time())
     local cfs_profit_table=public_data.cfs_profit_table
-    if(cfs_profit_table~=nil and compare(cfs_profit_table.keys,"0") ==1 ) then
-        amount=toDecimal(amount,MAIN_TOKEN_ACCURACY)
-        local profitPerKey = div(amount,cfs_profit_table.keys)
-        cfs_profit_table.cocos_mask=add(cfs_profit_table.cocos_mask,profitPerKey)
-        cfs_profit_table.cocos_in=add(cfs_profit_table.cocos_in,amount)
+    if(cfs_profit_table~=nil and bn.compare(cfs_profit_table.keys,"0") ==1 ) then
+        amount=bn.toDecimal(amount,MAIN_TOKEN_ACCURACY)
+        local profitPerKey = bn.div(amount,cfs_profit_table.keys)
+        cfs_profit_table.cocos_mask=bn.add(cfs_profit_table.cocos_mask,profitPerKey)
+        cfs_profit_table.cocos_in=bn.add(cfs_profit_table.cocos_in,amount)
         public_data.cfs_profit_table=cfs_profit_table
-        _safe_transfer_from_caller(contract_base_info.owner,tonumber(toBigInteger(mul(amount,math.pow(10,MAIN_TOKEN_ACCURACY)))),MAIN_TOKEN,true)
+        _safe_transfer_from_caller(contract_base_info.owner,tonumber(bn.toBigInteger(bn.mul(amount,math.pow(10,MAIN_TOKEN_ACCURACY)))),MAIN_TOKEN,true)
     end
     chainhelper:write_chain()
 end
 
 function stake_cfs(amount)
+    check_start()
     chainhelper:read_chain()
-    assert(compare(amount,"0")==1,"amount must positive")
-    assert(compare(amount,"100000000000") == -1 , "amount to big!")
+    assert(bn.compare(amount,"0")==1,"amount must positive")
+    assert(bn.compare(amount,"100000000000") == -1 , "amount to big!")
 
-    amount=toDecimal(amount,MINE_TOKEN_ACCURACY)
+    amount=bn.toDecimal(amount,MINE_TOKEN_ACCURACY)
     local cfs_profit_table=public_data.cfs_profit_table
     assert(cfs_profit_table ~= nil,'cfs_profit_table not found')
     local stake_profit_table=private_data.stake_profit_table
@@ -252,13 +317,13 @@ function stake_cfs(amount)
         stake_profit_table.cocos_mask="0"
         stake_profit_table.cocos_out="0"
     end
-    stake_profit_table.keys=add(stake_profit_table.keys,amount)
-    stake_profit_table.cocos_mask=add(stake_profit_table.cocos_mask,mul(cfs_profit_table.cocos_mask,amount))
-    cfs_profit_table.keys=add(cfs_profit_table.keys,amount)
+    stake_profit_table.keys=bn.add(stake_profit_table.keys,amount)
+    stake_profit_table.cocos_mask=bn.add(stake_profit_table.cocos_mask,bn.mul(cfs_profit_table.cocos_mask,amount))
+    cfs_profit_table.keys=bn.add(cfs_profit_table.keys,amount)
     public_data.cfs_profit_table=cfs_profit_table
     private_data.stake_profit_table=stake_profit_table
 
-    _safe_transfer_from_caller(contract_base_info.owner,tonumber(toBigInteger(mul(amount,math.pow(10,MINE_TOKEN_ACCURACY)))),MINE_TOKEN,true)
+    _safe_transfer_from_caller(contract_base_info.owner,tonumber(bn.toBigInteger(bn.mul(amount,math.pow(10,MINE_TOKEN_ACCURACY)))),MINE_TOKEN,true)
 
     chainhelper:write_chain()
 end
@@ -273,17 +338,17 @@ function draw_cfs(un_stake)
     assert(cfs_profit_table ~= nil,'cfs_profit_table not found')
     local stake_profit_table=private_data.stake_profit_table
     assert(stake_profit_table ~= nil,'stake_profit_table not found')
-    local profit = sub(mul(cfs_profit_table.cocos_mask,stake_profit_table.keys),stake_profit_table.cocos_mask)
-    cfs_profit_table.cocos_out=add(cfs_profit_table.cocos_out,profit)
-    cfs_profit_table.cocos_out=toDecimal(cfs_profit_table.cocos_out,5)
-    stake_profit_table.cocos_mask= mul(cfs_profit_table.cocos_mask,stake_profit_table.keys)
-    stake_profit_table.cocos_out=add(stake_profit_table.cocos_out,profit)
-    if(compare(profit,"0")==1) then
-        _safe_transfer_from_owner(contract_base_info.caller,tonumber(toBigInteger(mul(profit,math.pow(10,MAIN_TOKEN_ACCURACY)))),MAIN_TOKEN,true)
+    local profit = bn.sub(bn.mul(cfs_profit_table.cocos_mask,stake_profit_table.keys),stake_profit_table.cocos_mask)
+    cfs_profit_table.cocos_out=bn.add(cfs_profit_table.cocos_out,profit)
+    cfs_profit_table.cocos_out=bn.toDecimal(cfs_profit_table.cocos_out,5)
+    stake_profit_table.cocos_mask= bn.mul(cfs_profit_table.cocos_mask,stake_profit_table.keys)
+    stake_profit_table.cocos_out=bn.add(stake_profit_table.cocos_out,profit)
+    if(bn.compare(profit,"0")==1) then
+        _safe_transfer_from_owner(contract_base_info.caller,tonumber(bn.toBigInteger(bn.mul(profit,math.pow(10,MAIN_TOKEN_ACCURACY)))),MAIN_TOKEN,true)
     end
     if(un_stake==1) then
-        cfs_profit_table.keys=sub(cfs_profit_table.keys,stake_profit_table.keys)
-        _safe_transfer_from_owner(contract_base_info.caller,tonumber(toBigInteger(mul(stake_profit_table.keys,math.pow(10,MINE_TOKEN_ACCURACY)))),MINE_TOKEN,true)
+        cfs_profit_table.keys=bn.sub(cfs_profit_table.keys,stake_profit_table.keys)
+        _safe_transfer_from_owner(contract_base_info.caller,tonumber(bn.toBigInteger(bn.mul(stake_profit_table.keys,math.pow(10,MINE_TOKEN_ACCURACY)))),MINE_TOKEN,true)
         stake_profit_table.keys="0"
         stake_profit_table.cocos_mask="0"
     end
@@ -303,8 +368,8 @@ function stake_cash(inx,amount,tax_rate)
     tax_rate=tonumber(tax_rate)
     assert(inx > 0,"inx not invalidate")
     assert(inx ~= nil,"inx not invalidate")
-    assert(compare(amount,"0")==1,"amount must positive")
-    assert(compare(amount,"1000000000000") == -1 , "amount to big!")
+    assert(bn.compare(amount,"0")==1,"amount must positive")
+    assert(bn.compare(amount,"1000000000000") == -1 , "amount to big!")
     assert(tax_rate>=0 and tax_rate<=0.05,"tax_rate must positive")
     local now_time_sec=math.floor(chainhelper:time())
 
@@ -315,9 +380,9 @@ function stake_cash(inx,amount,tax_rate)
         end
     end
     assert(cash_pair ~= nil,"pair not support")
-    amount=toDecimal(amount,cash_pair.unit)
-    local key_amount= add(amount,mul(mul(tax_rate,1000),amount))
-    assert(compare(key_amount,"0")==1,"key_amount must positive")
+    amount=bn.toDecimal(amount,cash_pair.unit)
+    local key_amount= bn.add(amount,bn.mul(bn.mul(tax_rate,1000),amount))
+    assert(bn.compare(key_amount,"0")==1,"key_amount must positive")
 
     local stake_cash_list = private_data.stake_cash_list
     if(stake_cash_list == nil) then
@@ -344,7 +409,7 @@ function stake_cash(inx,amount,tax_rate)
     cash_item.name=cash_pair.sym
     cash_item.amount=amount
     cash_item.keys=key_amount
-    cash_item.mask=mul(key_amount,cash_pair.mask)
+    cash_item.mask=bn.mul(key_amount,cash_pair.mask)
     cash_item.tax_rate = tax_rate
     cash_item.tax_fee = "0"
     cash_item.drawed = "0"
@@ -352,7 +417,7 @@ function stake_cash(inx,amount,tax_rate)
     cash_item.check_time=math.floor(chainhelper:time())
     assert(stake_info.cash_items[now_time_sec] ==  nil,"stake too fast!")
     stake_info.cash_items[now_time_sec] = cash_item
-    cash_pair.keys=add(cash_pair.keys,key_amount)
+    cash_pair.keys=bn.add(cash_pair.keys,key_amount)
 
     public_data.stake_cash_pool[inx]=cash_pair
     private_data.stake_cash_list[inx]=stake_info
@@ -362,7 +427,7 @@ function stake_cash(inx,amount,tax_rate)
         public_data.start_mine_time=math.floor(chainhelper:time())
         public_data.last_mine_time=math.floor(chainhelper:time())
     end
-    _safe_transfer_from_caller(contract_base_info.owner, tonumber(toBigInteger(mul(amount,math.pow(10,cash_pair.unit)))), cash_pair.sym, true)
+    _safe_transfer_from_caller(contract_base_info.owner, tonumber(bn.toBigInteger(bn.mul(amount,math.pow(10,cash_pair.unit)))), cash_pair.sym, true)
     chainhelper:write_chain()
 
 end
@@ -373,6 +438,7 @@ end
 --解压货币
 function draw_cash(inx,un_stake)
     check_start()
+    freq_limit()
     tick_mine()
     chainhelper:read_chain()
     inx=tonumber(inx)
@@ -386,101 +452,96 @@ function draw_cash(inx,un_stake)
     assert(stake_info ~= nil,"stake info not found")
     assert(stake_info.cash_items ~= nil,"cash items not found")
     local now_time_sec=math.floor(chainhelper:time())
-    if(now_time_sec>pro_stop_time) then
-        now_time_sec = pro_stop_time
-    end
     local profit = "0"
     local fire_tax_fee="0"
     local extra_fee="0"
     local total_keys="0"
     local re_fee="0"
-
     for i, v in pairs(stake_info.cash_items) do
-        local tmp_profit= sub(mul(cash_pair.mask,v.keys),v.mask)
-        profit = add(profit,tmp_profit)
+        local tmp_profit= bn.sub(bn.mul(cash_pair.mask,v.keys),v.mask)
+        profit = bn.add(profit,tmp_profit)
         if(v.drawed == nil) then
             v.drawed="0"
         end
-        v.drawed=add(v.drawed,tmp_profit)
-        v.mask = mul(cash_pair.mask,v.keys)
-
-        local pass_sec=now_time_sec-v.check_time
+        v.drawed=bn.add(v.drawed,tmp_profit)
+        v.mask = bn.mul(cash_pair.mask,v.keys)
+        local pass_sec = get_pass_sec(public_data.pause_time,public_data.restart_time,now_time_sec,v.check_time)
         if(pass_sec>0) then
-            local tax_fee = mul(pass_sec,div(mul(v.amount,v.tax_rate),DAY_SEC))
+            local tax_fee = bn.mul(pass_sec,bn.div(bn.mul(v.amount,v.tax_rate),DAY_SEC))
             local user_amount=v.amount
             local last_tax_fee = v.tax_fee
-            local total_tax_fee = add(tax_fee,v.tax_fee)
+            local total_tax_fee = bn.add(tax_fee,v.tax_fee)
 
-            if(compare(user_amount,last_tax_fee) >= 0 and compare(user_amount,total_tax_fee) >= 0) then
-                fire_tax_fee=add(fire_tax_fee,tax_fee)
-            elseif(compare(total_tax_fee,user_amount) >= 0 and compare(user_amount,last_tax_fee) >= 0) then
-                extra_fee=add(extra_fee,sub(total_tax_fee,user_amount))
-                fire_tax_fee=add(fire_tax_fee,sub(user_amount,last_tax_fee))
-            elseif(compare(total_tax_fee,user_amount) >= 0 and compare(last_tax_fee,user_amount) >= 0) then
-                extra_fee=add(extra_fee,tax_fee)
+            if(bn.compare(user_amount,last_tax_fee) >= 0 and bn.compare(user_amount,total_tax_fee) >= 0) then
+                fire_tax_fee=bn.add(fire_tax_fee,tax_fee)
+            elseif(bn.compare(total_tax_fee,user_amount) >= 0 and bn.compare(user_amount,last_tax_fee) >= 0) then
+                extra_fee=bn.add(extra_fee,bn.sub(total_tax_fee,user_amount))
+                fire_tax_fee=bn.add(fire_tax_fee,bn.sub(user_amount,last_tax_fee))
+            elseif(bn.compare(total_tax_fee,user_amount) >= 0 and bn.compare(last_tax_fee,user_amount) >= 0) then
+                extra_fee=bn.add(extra_fee,tax_fee)
             end
             v.tax_fee=total_tax_fee
         end
         v.check_time=now_time_sec
 
-        if(compare(v.amount,v.tax_fee) >= 0) then
-            re_fee=add(re_fee,sub(v.amount,v.tax_fee))
+        if(bn.compare(v.amount,v.tax_fee) >= 0) then
+            re_fee=bn.add(re_fee,bn.sub(v.amount,v.tax_fee))
         end
-        total_keys=add(total_keys,v.keys)
+        total_keys=bn.add(total_keys,v.keys)
         stake_info.cash_items[i]=v
     end
 
-    profit=toDecimal(profit,MINE_TOKEN_ACCURACY)
-    if(compare(profit,"0")==1) then
-        _safe_transfer_from_owner(contract_base_info.caller, tonumber(toBigInteger(mul(profit,math.pow(10,MINE_TOKEN_ACCURACY)))) , MINE_TOKEN, true)
+    profit=bn.toDecimal(profit,MINE_TOKEN_ACCURACY)
+    if(bn.compare(profit,"0")==1) then
+        _safe_transfer_from_owner(contract_base_info.caller, tonumber(bn.toBigInteger(bn.mul(profit,math.pow(10,MINE_TOKEN_ACCURACY)))) , MINE_TOKEN, true)
     end
 
     --质押时间过久，手续费已经把本金扣完
-    extra_fee=toDecimal(extra_fee,cash_pair.unit)
-    if(compare(extra_fee,"0")==1) then
-        _safe_transfer_from_caller(contract_base_info.owner, tonumber(toBigInteger(mul(extra_fee,math.pow(10,cash_pair.unit)))), cash_pair.sym, true)
-    end
-
-    local all_tax_fee=add(fire_tax_fee,extra_fee)
+    extra_fee=bn.toDecimal(extra_fee,cash_pair.unit)
+    local all_tax_fee=bn.add(fire_tax_fee,extra_fee)
 
     local profit_fee ="0"
     local moon_fee="0"
     if(cash_pair.sym==MAIN_TOKEN) then
-        profit_fee=mul(all_tax_fee,PROFIT_RATE)
-        moon_fee=mul(all_tax_fee,MOON_RATE)
+        profit_fee=bn.mul(all_tax_fee,PROFIT_RATE)
+        moon_fee=bn.mul(all_tax_fee,MOON_RATE)
     else
-        moon_fee=mul(all_tax_fee,PROFIT_RATE+MOON_RATE)
+        moon_fee=bn.mul(all_tax_fee,PROFIT_RATE+MOON_RATE)
     end
-    local fund_fee=sub(sub(all_tax_fee,moon_fee),profit_fee)
+    local fund_fee=bn.sub(bn.sub(all_tax_fee,moon_fee),profit_fee)
 
     if(cash_pair.sym==MAIN_TOKEN) then
         local cfs_profit_table=public_data.cfs_profit_table
-        if(cfs_profit_table~=nil and compare(cfs_profit_table.keys,"0") ==1 and compare(profit_fee,"0")==1) then
-            profit_fee=toDecimal(profit_fee,MAIN_TOKEN_ACCURACY)
-            local profitPerKey = div(profit_fee,cfs_profit_table.keys)
-            cfs_profit_table.cocos_mask=add(cfs_profit_table.cocos_mask,profitPerKey)
-            cfs_profit_table.cocos_in=add(cfs_profit_table.cocos_in,profit_fee)
+        if(cfs_profit_table~=nil and bn.compare(cfs_profit_table.keys,"0") ==1 and bn.compare(profit_fee,"0")==1) then
+            profit_fee=bn.toDecimal(profit_fee,MAIN_TOKEN_ACCURACY)
+            local profitPerKey = bn.div(profit_fee,cfs_profit_table.keys)
+            cfs_profit_table.cocos_mask=bn.add(cfs_profit_table.cocos_mask,profitPerKey)
+            cfs_profit_table.cocos_in=bn.add(cfs_profit_table.cocos_in,profit_fee)
             public_data.cfs_profit_table=cfs_profit_table
         end
     end
 
-    fund_fee=toDecimal(fund_fee,cash_pair.unit)
-    if(compare(fund_fee,"0") == 1) then
-        _safe_transfer_from_owner(MINE_FUND, tonumber(toBigInteger(mul(fund_fee,math.pow(10,cash_pair.unit)))), cash_pair.sym, true)
+    fund_fee=bn.toDecimal(fund_fee,cash_pair.unit)
+    if(bn.compare(fund_fee,"0") == 1) then
+        _safe_transfer_from_owner(MINE_FUND, tonumber(bn.toBigInteger(bn.mul(fund_fee,math.pow(10,cash_pair.unit)))), cash_pair.sym, true)
     end
 
-    moon_fee=toDecimal(moon_fee,cash_pair.unit)
-    if(compare(moon_fee,"0") == 1) then
-        _safe_transfer_from_owner(TO_MOON, tonumber(toBigInteger(mul(moon_fee,math.pow(10,cash_pair.unit)))), cash_pair.sym, true)
+    moon_fee=bn.toDecimal(moon_fee,cash_pair.unit)
+    if(bn.compare(moon_fee,"0") == 1) then
+        _safe_transfer_from_owner(TO_MOON, tonumber(bn.toBigInteger(bn.mul(moon_fee,math.pow(10,cash_pair.unit)))), cash_pair.sym, true)
     end
 
     if(un_stake==1) then
-        re_fee=toDecimal(re_fee,cash_pair.unit)
-        if(compare(re_fee,"0") == 1) then
-            _safe_transfer_from_owner(contract_base_info.caller, tonumber(toBigInteger(mul(re_fee,math.pow(10,cash_pair.unit)))), cash_pair.sym, true)
+        re_fee=bn.toDecimal(re_fee,cash_pair.unit)
+        if(bn.compare(re_fee,"0") == 1) then
+            _safe_transfer_from_owner(contract_base_info.caller, tonumber(bn.toBigInteger(bn.mul(re_fee,math.pow(10,cash_pair.unit)))), cash_pair.sym, true)
         end
-        cash_pair.keys=sub(cash_pair.keys,total_keys)
+        cash_pair.keys=bn.sub(cash_pair.keys,total_keys)
         stake_info=nil
+    end
+
+    if(bn.compare(extra_fee,"0")==1) then
+        _safe_transfer_from_caller(contract_base_info.owner, tonumber(bn.toBigInteger(bn.mul(extra_fee,math.pow(10,cash_pair.unit)))), cash_pair.sym, true)
     end
 
     public_data.stake_cash_pool[inx]=cash_pair
@@ -494,66 +555,82 @@ function tick_mine()
     check_start()
     chainhelper:read_chain()
     local nowtime=math.floor(chainhelper:time())
-    if(nowtime > pro_stop_time) then
-        nowtime = pro_stop_time
-    end
     local last_mine_time = math.floor(public_data.last_mine_time)
     local last_block_num = math.floor(public_data.last_block_num)
     local last_mine_award = public_data.last_mine_award
-    local fly_time = nowtime - last_mine_time
+    --local fly_time = nowtime - last_mine_time
+    local fly_time = get_pass_sec(public_data.pause_time,public_data.restart_time,nowtime,last_mine_time)
     assert(fly_time >= 0, "fly time error")
     local fly_block = fly_time * 2
     if (last_mine_time > 0 and fly_block > 0) then
         local total_block = fly_block + last_block_num
-        local cut_times = math.floor(total_block / BLOCK_CUT)
-        local extra_block = total_block - cut_times * BLOCK_CUT
-        local cut_rate = 0.9
+        local old_cut_times=math.floor(last_block_num / BLOCK_CUT)
+        local now_cut_times = math.floor(total_block / BLOCK_CUT)
+        local extra_block = total_block - now_cut_times * BLOCK_CUT
+        local cut_rate = 0.8
         local now_rate = 1
-        local init_award = 1
-        local total_mine_award = "0"
-        for i = 1, cut_times do
-            total_mine_award = add(total_mine_award, mul(init_award, mul(BLOCK_CUT, now_rate)))
-            now_rate = mul(now_rate, cut_rate)
+        local init_award = 0.25
+        local now_mine_award = "0"
+        for i = 1, old_cut_times do
+            now_rate = bn.mul(now_rate, cut_rate)
         end
-        if (extra_block > 0) then
-            total_mine_award = add(total_mine_award, mul(extra_block, now_rate))
+
+        if(now_cut_times>old_cut_times) then
+            local fly_cnt=now_cut_times-old_cut_times
+            local head_block=(old_cut_times+1)*BLOCK_CUT-last_block_num
+            now_mine_award=bn.add(now_mine_award,bn.mul(init_award,bn.mul(head_block,now_rate)))
+            local tail_cnt=fly_cnt-1
+            if(tail_cnt > 0) then
+                for i = 1, tail_cnt do
+                    now_rate = bn.mul(now_rate, cut_rate)
+                    now_mine_award = bn.add(now_mine_award, bn.mul(init_award, bn.mul(BLOCK_CUT, now_rate)))
+                end
+            end
+            if (extra_block > 0) then
+                now_rate = bn.mul(now_rate, cut_rate)
+                now_mine_award = bn.add(now_mine_award, bn.mul(init_award, bn.mul(extra_block, now_rate)))
+            end
+        else
+            now_mine_award=bn.add(now_mine_award,bn.mul(init_award,bn.mul(fly_block,now_rate)))
         end
-        total_mine_award = toDecimal(total_mine_award, 10)
-        local now_mine_award = sub(total_mine_award, last_mine_award)
-        assert(compare(now_mine_award, "0") >= 0, "mine award must positive")
-        local dev_mine_award = mul(now_mine_award,FUND_RATE)
-        if(compare(dev_mine_award,"0") == 1) then
-            now_mine_award=sub(now_mine_award,dev_mine_award)
-            _safe_transfer_from_owner(MINE_FUND, tonumber(toBigInteger(mul(dev_mine_award,math.pow(10,MINE_TOKEN_ACCURACY)))), MINE_TOKEN, true)
+        now_mine_award = bn.toDecimal(now_mine_award, 10)
+        local total_mine_award = bn.add(now_mine_award, last_mine_award)
+        assert(bn.compare(now_mine_award, "0") >= 0, "mine award must positive")
+        assert(bn.compare(total_mine_award, "0") >= 0, "total mine award must positive")
+        local dev_mine_award = bn.mul(now_mine_award,FUND_RATE)
+        if(bn.compare(dev_mine_award,"0") == 1) then
+            now_mine_award=bn.sub(now_mine_award,dev_mine_award)
+            _safe_transfer_from_owner(MINE_FUND, tonumber(bn.toBigInteger(bn.mul(dev_mine_award,math.pow(10,MINE_TOKEN_ACCURACY)))), MINE_TOKEN, true)
         end
         public_data.last_mine_time = nowtime
         public_data.last_block_num = total_block
         public_data.last_mine_award = total_mine_award
+        public_data.now_rate=now_rate
 
         local total_mine_weight = 0
         if(public_data.stake_cash_pool ~= nil) then
             local stake_cash_pool=public_data.stake_cash_pool
             for i, v in pairs(stake_cash_pool) do
-                if(compare(v.keys,"0")==1) then
+                if(bn.compare(v.keys,"0")==1) then
                     total_mine_weight=total_mine_weight+v.weight
                 end
             end
         end
         if(public_data.stake_cros_lp_pool ~= nil) then
             for i, v in pairs(public_data.stake_cros_lp_pool) do
-                if(compare(v.keys,"0")==1) then
+                if(bn.compare(v.keys,"0")==1) then
                     total_mine_weight=total_mine_weight+v.weight
                 end
             end
         end
         if(total_mine_weight>0) then
-            local per_pool_award=div(now_mine_award,total_mine_weight)
+            local per_pool_award=bn.div(now_mine_award,total_mine_weight)
             if(public_data.stake_cash_pool ~= nil) then
                 local stake_cash_pool=public_data.stake_cash_pool
                 for i, v in pairs(stake_cash_pool) do
-                    if(compare(v.keys,"0")==1) then
-                        local profit_per_key=div(mul(per_pool_award,v.weight),v.keys)
-                        v.mask=add(v.mask,profit_per_key)
+                    if(bn.compare(v.keys,"0")==1) then
+                        local profit_per_key=bn.div(bn.mul(per_pool_award,v.weight),v.keys)
+                        v.mask=bn.add(v.mask,profit_per_key)
                         stake_cash_pool[i]=v
                     end
                 end
@@ -562,9 +639,9 @@ function tick_mine()
             if(public_data.stake_cros_lp_pool ~= nil) then
                 local stake_cros_lp_pool=public_data.stake_cros_lp_pool
                 for i, v in pairs(stake_cros_lp_pool) do
-                    if(compare(v.keys,"0")==1) then
-                        local profit_per_key=div(mul(per_pool_award,v.weight),v.keys)
-                        v.mask=add(v.mask,profit_per_key)
+                    if(bn.compare(v.keys,"0")==1) then
+                        local profit_per_key=bn.div(bn.mul(per_pool_award,v.weight),v.keys)
+                        v.mask=bn.add(v.mask,profit_per_key)
                         stake_cros_lp_pool[i]=v
                     end
                 end
@@ -572,9 +649,10 @@ function tick_mine()
             end
         end
         if(total_mine_weight>0) then
-            chainhelper:write_chain()
+
         end
     end
+    chainhelper:write_chain()
 end
 
 
@@ -631,10 +709,10 @@ function stake_cros_lp(lp_id)
     lp_item.id=lp_id
     lp_item.liquidity=lp.liquidity
     stake_info.lp_items[lp_id]=lp_item
-    cros_lp_pair.keys=add(cros_lp_pair.keys,lp.liquidity)
-    stake_info.lp_share.keys=add(stake_info.lp_share.keys,lp.liquidity)
-    assert(compare(lp.liquidity,"0")==1,"liquidity must positive")
-    stake_info.lp_share.mask=add(stake_info.lp_share.mask,mul(lp.liquidity,cros_lp_pair.mask))
+    cros_lp_pair.keys=bn.add(cros_lp_pair.keys,lp.liquidity)
+    stake_info.lp_share.keys=bn.add(stake_info.lp_share.keys,lp.liquidity)
+    assert(bn.compare(lp.liquidity,"0")==1,"liquidity must positive")
+    stake_info.lp_share.mask=bn.add(stake_info.lp_share.mask,bn.mul(lp.liquidity,cros_lp_pair.mask))
     public_data.stake_cros_lp_pool[inx]=cros_lp_pair
 
     private_data.stake_cros_lp_list[inx]=stake_info
@@ -662,647 +740,25 @@ function draw_cros_mine(inx,un_stake)
     local stake_info = stake_cros_lp_list[inx]
     assert(stake_info ~= nil,"stake info not found")
 
-    local profit = sub(mul(cros_lp_pair.mask,stake_info.lp_share.keys),stake_info.lp_share.mask)
-    profit=toDecimal(profit,MINE_TOKEN_ACCURACY)
-    assert(compare(profit,"0") == 1,"profit is to small")
-    _safe_transfer_from_owner(contract_base_info.caller, tonumber(toBigInteger(mul(profit,math.pow(10,MINE_TOKEN_ACCURACY)))) , MINE_TOKEN, true)
+    local profit = bn.sub(bn.mul(cros_lp_pair.mask,stake_info.lp_share.keys),stake_info.lp_share.mask)
+    profit=bn.toDecimal(profit,MINE_TOKEN_ACCURACY)
+    assert(bn.compare(profit,"0") == 1,"profit is to small")
+    _safe_transfer_from_owner(contract_base_info.caller, tonumber(bn.toBigInteger(bn.mul(profit,math.pow(10,MINE_TOKEN_ACCURACY)))) , MINE_TOKEN, true)
 
     if(un_stake==1) then
-        cros_lp_pair.keys=sub(cros_lp_pair.keys,stake_info.lp_share.keys)
+        cros_lp_pair.keys=bn.sub(cros_lp_pair.keys,stake_info.lp_share.keys)
         stake_info.lp_share.keys="0"
         stake_info.lp_share.mask="0"
-        stake_info.lp_share.drawed=add(stake_info.lp_share.drawed,profit)
+        stake_info.lp_share.drawed=bn.add(stake_info.lp_share.drawed,profit)
         for i, v in pairs(stake_info.lp_items) do
             chainhelper:transfer_nht_from_owner(contract_base_info.caller, v.id, true)
         end
         stake_info.lp_items={}
     else
-        stake_info.lp_share.mask= mul(cros_lp_pair.mask,stake_info.lp_share.keys)
-        stake_info.lp_share.drawed=add(stake_info.lp_share.drawed,profit)
+        stake_info.lp_share.mask= bn.mul(cros_lp_pair.mask,stake_info.lp_share.keys)
+        stake_info.lp_share.drawed=bn.add(stake_info.lp_share.drawed,profit)
     end
     public_data.stake_cros_lp_pool[inx]=cros_lp_pair
     private_data.stake_cros_lp_list[inx]=stake_info
     chainhelper:write_chain()
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
------------------------------------------------------------------------
-
-
-local POSI = 43 -- +
-local NEGA = 45 -- -
-local POINT = 46 -- .
-local ZERO = 48 -- 0
-local NINE = 57 -- 9
-local EXP = 101 -- e
-
-local P_DENO = 1000000000000000000
-local ACCURACY = 18
-
-local function _bytesToString(bytes)
-    -- return string.char(table.unpack(bytes))
-
-    local str = ""
-    for i = 1, #bytes do
-        str = str .. string.char(bytes[i])
-    end
-
-    return str
-end
-
-local function _stringToBytes(str)
-    return {string.byte(str, 1, #str)}
-end
-
--- type number: math.floor(number)
--- type string: match("^[\\-\\+]?[0-9\\.]?$")
-function toBigInteger(num)
-    if type(num) == "number" then
-        local str = tostring(math.floor(num))
-        local bs = {string.byte(str, 1, #str)}
-
-        local hasExp = false
-        for i, b in pairs(bs) do
-            if b == EXP then
-                hasExp = true
-                break
-            end
-        end
-
-        if not hasExp then
-            return str
-        end
-
-        if num < 1 and num > -1 then
-            return "0"
-        end
-
-        local isNeg = false
-        if num < 0 then
-            isNeg = true
-            num = -num
-        end
-
-        local bytes = {}
-
-        while num >= 1 do
-            local b = math.floor(num % 10)
-            num = num / 10
-            table.insert(bytes, 1, b + ZERO)
-        end
-
-        if isNeg then
-            table.insert(bytes, 1, NEGA)
-        end
-
-        return _bytesToString(bytes)
-    elseif type(num) == "string" then
-        local bytes = _stringToBytes(num)
-
-        local startIndex = 1
-        local isNeg = false
-
-        if bytes[1] == POSI then
-            startIndex = 2
-        elseif bytes[1] == NEGA then
-            startIndex = 2
-            isNeg = true
-        end
-
-        local result = {}
-
-        for i = startIndex, #bytes do
-            local bt = bytes[i]
-            if bt == POINT then
-                break
-            end
-
-            assert(bt >= ZERO and bt <= NINE, "string must match ^\\-?[0-9\\.]+$")
-
-            if bt > ZERO or #result > 0 then
-                table.insert(result, bt)
-            end
-        end
-
-        if #result == 0 then
-            return "0"
-        end
-
-        if isNeg then
-            table.insert(result, 1, NEGA)
-        end
-
-        return _bytesToString(result)
-    else
-        assert(false, "support type number and string")
-    end
-end
-
-local function _comparePart(a, aStart, aEnd, b, bStart, bEnd)
-    local aLength = aEnd - aStart + 1
-    local bLength = bEnd - bStart + 1
-
-    if aLength > bLength then
-        return 1
-    elseif aLength < bLength then
-        return -1
-    end
-
-    for i = 0, aLength - 1 do
-        local temp = a[aStart + i] - b[bStart + i]
-        if temp < 0 then
-            return -1
-        elseif temp > 0 then
-            return 1
-        end
-    end
-
-    return 0
-end
-
--- a < b return -1
--- a > b return 1
--- a == b return 0
-function compareInt(a, b)
-    a = toBigInteger(a)
-    b = toBigInteger(b)
-
-    local bsa = _stringToBytes(a)
-    local bsb = _stringToBytes(b)
-    local pa = bsa[1] ~= NEGA
-    local pb = bsb[1] ~= NEGA
-
-    if not pa and pb then
-        return -1
-    elseif pa and not pb then
-        return 1
-    end
-
-    local result = _comparePart(bsa, pa and 1 or 2, #bsa,
-            bsb, pb and 1 or 2, #bsb)
-
-    return pa and result or -result
-end
-
-local function _subPart(a, aStart, aEnd, b, bStart, bEnd, change)
-    local def = a[aStart] >= ZERO and ZERO or 0
-
-    local c = {}
-    local carry = 0
-
-    for i = 0, aEnd - aStart do
-        local temp = a[aEnd - i] - (b[bEnd - i] or def) - carry
-
-        if temp < 0 then
-            carry = 1
-            temp = temp + 10
-        else
-            carry = 0
-        end
-
-        table.insert(c, 1, temp)
-    end
-
-    if change then
-        for i = 1, #c do
-            a[aStart + i - 1] = c[i]
-        end
-    end
-
-    while c[1] == 0 do
-        table.remove(c, 1)
-    end
-
-    return c
-end
-
-function subInt(a, b)
-    a = toBigInteger(a)
-    b = toBigInteger(b)
-
-    local bsa = _stringToBytes(a)
-    local bsb = _stringToBytes(b)
-    local pa = bsa[1] ~= NEGA
-    local pb = bsb[1] ~= NEGA
-
-    if not pa and pb then
-        return addInt(a, "-" .. b)
-    elseif pa and not pb then
-        return addInt(a, string.sub(b, 2))
-    end
-
-    if not pa then
-        table.remove(bsa, 1)
-        table.remove(bsb, 1)
-    end
-
-    local cmp = _comparePart(bsa, 1, #bsa, bsb, 1, #bsb)
-
-    if cmp == 0 then
-        return "0"
-    elseif cmp < 0 then
-        pa = not pa
-        bsa, bsb = bsb, bsa
-    end
-
-    local c = _subPart(bsa, 1, #bsa, bsb, 1, #bsb)
-    local bsc = {}
-
-    for i = 1, #c do
-        bsc[i] = c[i] + ZERO
-    end
-
-    if not pa then
-        table.insert(bsc, 1, NEGA)
-    end
-
-    return _bytesToString(bsc)
-end
-
-function addInt(a, b)
-    a = toBigInteger(a)
-    b = toBigInteger(b)
-
-    local la = #a
-    local lb = #b
-    local bsa = _stringToBytes(a)
-    local bsb = _stringToBytes(b)
-    local pa = bsa[1] ~= NEGA
-    local pb = bsb[1] ~= NEGA
-
-    if not pa and pb then
-        return subInt(b, string.sub(a, 2))
-    elseif pa and not pb then
-        return subInt(a, string.sub(b, 2))
-    end
-
-    if not pa then
-        table.remove(bsa, 1)
-        table.remove(bsb, 1)
-        la = la - 1
-        lb = lb - 1
-    end
-
-    local length = math.max(la, lb)
-
-    local bsc = {}
-    local carry = 0
-
-    for i = 0, length - 1 do
-        local temp = (bsa[la - i] or ZERO) - ZERO
-                + (bsb[lb - i] or ZERO) - ZERO + carry
-
-        if temp > 9 then
-            carry = 1
-            temp = temp - 10
-        else
-            carry = 0
-        end
-
-        table.insert(bsc, 1, temp + ZERO)
-    end
-
-    if carry > 0 then
-        table.insert(bsc, 1, carry + ZERO)
-    end
-
-    if not pa then
-        table.insert(bsc, 1, NEGA)
-    end
-
-    return _bytesToString(bsc)
-end
-
-
-
-
-
-local function _mul(a, b)
-    a = toBigInteger(a)
-    b = toBigInteger(b)
-
-    if a == "0" or b == "0" then
-        return "0"
-    end
-
-    local la = #a
-    local lb = #b
-    local bsa = _stringToBytes(a)
-    local bsb = _stringToBytes(b)
-    local pa = bsa[1] ~= NEGA
-    local pb = bsb[1] ~= NEGA
-
-    if not pa then
-        table.remove(bsa, 1)
-        la = la - 1
-    end
-
-    if not pb then
-        table.remove(bsb, 1)
-        lb = lb - 1
-    end
-
-    local c = {}
-    for i = 1, la do
-        for j = 1, lb do
-            local temp = (bsa[i] - ZERO) * (bsb[j] - ZERO)
-            local index = la - i + lb - j + 1
-            c[index] = (c[index] or 0) + temp
-
-            while c[index] and c[index] > 9 do
-                c[index + 1] = (c[index + 1] or 0) + math.floor(c[index] / 10)
-                c[index] = c[index] % 10
-                index = index + 1
-            end
-        end
-    end
-
-    local bsc = {}
-    for i = #c, 1, -1 do
-        table.insert(bsc, c[i] + ZERO)
-    end
-
-    if pa ~= pb then
-        table.insert(bsc, 1, NEGA)
-    end
-
-    return _bytesToString(bsc)
-end
-
-local function _div(a, b)
-    a = toBigInteger(a)
-    b = toBigInteger(b)
-
-    assert(b ~= "0", "divide by zero")
-
-    if a == "0" then
-        return "0"
-    end
-
-    local la = #a
-    local lb = #b
-    local bsa = _stringToBytes(a)
-    local bsb = _stringToBytes(b)
-    local pa = bsa[1] ~= NEGA
-    local pb = bsb[1] ~= NEGA
-
-    if not pa then
-        table.remove(bsa, 1)
-        la = la - 1
-    end
-
-    if not pb then
-        table.remove(bsb, 1)
-        lb = lb - 1
-    end
-
-    if _comparePart(bsa, 1, la, bsb, 1, lb) < 0 then
-        return "0"
-    end
-
-    for i = 1, #bsa do
-        bsa[i] = bsa[i] - ZERO
-    end
-
-    for i = 1, #bsb do
-        bsb[i] = bsb[i] - ZERO
-    end
-
-    local c = {}
-    for i = 1, la - lb + 1 do
-        local temp = 0
-
-        while i > 1 and bsa[i - 1] > 0 or _comparePart(bsa, i, i + lb - 1, bsb, 1, lb) >= 0 do
-            local startIndex = i > 1 and bsa[i - 1] > 0 and i - 1 or i
-            _subPart(bsa, startIndex, i + lb - 1, bsb, 1, lb, true)
-            temp = temp + 1
-        end
-
-        table.insert(c, temp)
-    end
-
-    local startIndex = 1
-    while c[startIndex] == 0 do
-        startIndex = startIndex + 1
-    end
-
-    local bsc = {}
-    for i = startIndex, #c do
-        bsc[i - startIndex + 1] = c[i] + ZERO
-    end
-
-    if pa ~= pb then
-        table.insert(bsc, 1, NEGA)
-    end
-
-    return _bytesToString(bsc)
-end
-
-local function split( str,reps )
-    local resultStrList = {}
-    string.gsub(str,'[^'..reps..']+',function ( w )
-        table.insert(resultStrList,w)
-    end)
-    return resultStrList
-end
-
-local function _parseNumber(a)
-    a=tostring(a)
-    ta=split(a,'.')
-    local lta = #ta
-    assert(lta>0 and lta<3, "not number")
-    if(lta==1) then
-        table.insert (ta,'0')
-    end
-    ta[2]= string.reverse(toBigInteger(string.reverse(ta[2])))
-
-    bsa1=_stringToBytes(ta[1])
-    bsa2=_stringToBytes(ta[2])
-
-    for k, v in pairs(bsa1) do
-        if(k~=1) then
-            assert(v>=48 and v<=57,"not number")
-        else
-            assert((v>=48 and v<=57) or (v==43) or (v==45),"not number")
-        end
-    end
-
-    for k, v in pairs(bsa2) do
-        assert(v>=48 and v<=57,"not number")
-    end
-    return ta;
-end
-
-function toDecimal(num,tail)
-    local ta=_parseNumber(num)
-    return ta[1].."."..string.sub(ta[2],1,tail)
-end
-
-
-local function parseNumber(a,b)
-    local ta=_parseNumber(a)
-    local tb=_parseNumber(b)
-
-    local lta = #ta
-    local ltb = #tb
-
-    local ldta=#ta[2]
-    local ldtb=#tb[2]
-
-    local maxld=math.max(ldta,ldtb)
-
-    for i = 1, (maxld-ldta) do
-        ta[2]=ta[2]..'0'
-    end
-
-    for i = 1, (maxld-ldtb) do
-        tb[2]=tb[2]..'0'
-    end
-
-    local na=ta[1]..ta[2]
-    local nb=tb[1]..tb[2]
-
-    local ret = {}
-    ret.a=na
-    ret.b=nb
-    ret.maxld=maxld
-    return ret
-end
-
-
-local function _formatResult(tr,pos)
-    --补0判定
-    local bu=2
-    --补0位置
-    local bupos=1
-    if(tr[1]==NEGA or tr[1]==POSI) then
-        bu=3
-        bupos=2
-    end
-    if(pos<bu) then
-        for i = 1, bu-pos do
-            pos = pos + 1
-            table.insert(tr,bupos,ZERO)
-        end
-    end
-    local ltr=#tr
-    table.insert(tr,pos,POINT)
-    local fret=_bytesToString(tr)
-
-    local ret = _bytesToString(tr)
-    if(ltr-pos>ACCURACY) then
-        ret=string.sub(ret,1,pos+ACCURACY)
-    end
-    return ret
-end
-
-
-function add(a,b)
-    local dnum=parseNumber(a,b)
-    local na=dnum.a
-    local nb=dnum.b
-    local tmp = addInt(na,nb)
-    local tr = _stringToBytes(tmp)
-    local ltr=#tr
-    local pos=1+ltr-dnum.maxld
-    return _formatResult(tr,pos)
-end
-
-function sub(a,b)
-    local dnum=parseNumber(a,b)
-    local na=dnum.a
-    local nb=dnum.b
-    local tmp = subInt(na,nb)
-    local tr = _stringToBytes(tmp)
-    local ltr=#tr
-    local pos=1+ltr-dnum.maxld
-    return _formatResult(tr,pos)
-end
-
-
-
-function mul(a,b)
-    local dnum=parseNumber(a,b)
-    local na=dnum.a
-    local nb=dnum.b
-    local tmp = _mul(na,nb)
-    local tr = _stringToBytes(tmp)
-    local ltr=#tr
-    local pos=1+ltr-2*dnum.maxld
-    return _formatResult(tr,pos)
-end
-
-function div(a,b)
-    local dnum=parseNumber(a,b)
-    local na=dnum.a
-    local nb=dnum.b
-    local tmp = _div(_mul(na,P_DENO),nb)
-    local tr = _stringToBytes(tmp)
-    local ltr=#tr
-    local pos=1+ltr-ACCURACY
-    return _formatResult(tr,pos)
-end
-
-function compare(a,b)
-    local dnum=parseNumber(a,b)
-    local na=dnum.a
-    local nb=dnum.b
-    local tmp = compareInt(na,nb)
-    return tmp
 end
