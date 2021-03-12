@@ -1,8 +1,8 @@
 --手续费抽成
 local FUND_RATE = 0.05
 
-local MOON_RATE = 0.2
-local PROFIT_RATE=0.7
+local MOON_RATE = 0.7
+local PROFIT_RATE=0.2
 
 local DAY_SEC=86400
 
@@ -288,6 +288,7 @@ function add_cfs_cocos(amount)
     chainhelper:read_chain()
     assert(bn.compare(amount,"0")==1,"amount must positive")
     assert(bn.compare(amount,"100000000000") == -1 , "amount to big!")
+    amount=bn.mul(amount,1000)
     local now_time_sec=math.floor(chainhelper:time())
     local cfs_profit_table=public_data.cfs_profit_table
     if(cfs_profit_table~=nil and bn.compare(cfs_profit_table.keys,"0") ==1 ) then
@@ -371,6 +372,8 @@ function stake_cash(inx,amount,tax_rate)
     assert(bn.compare(amount,"0")==1,"amount must positive")
     assert(bn.compare(amount,"1000000000000") == -1 , "amount to big!")
     assert(tax_rate>=0 and tax_rate<=0.05,"tax_rate must positive")
+    --把amount从精度8校正到精度5兼容老逻辑
+    amount=bn.mul(amount,1000)
     local now_time_sec=math.floor(chainhelper:time())
 
     local cash_pair=nil
